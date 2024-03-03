@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mashup Request Form</title>
+</head>
+<body>
+    <h2>Mashup Request Form</h2>
+    <form id="mashupForm" action="/submit" method="post">
+        <label for="singer">Singer Name:</label><br>
+        <input type="text" id="singer" name="singer" required><br>
+        <label for="num_videos">Number of Videos:</label><br>
+        <input type="number" id="num_videos" name="num_videos" min="1" required><br>
+        <label for="duration">Duration of Each Video (seconds):</label><br>
+        <input type="number" id="duration" name="duration" min="1" required><br>
+        <label for="email">Email:</label><br>
+        <input type="email" id="email" name="email" required><br><br>
+        <input type="submit" value="Submit">
+    </form>
+
+    <div id="processingMessage" style="display: none;">Processing, please wait...</div>
+
+    <script>
+        document.getElementById("mashupForm").addEventListener("submit", function(event) {
+            event.preventDefault();
+            
+            // Show processing message
+            document.getElementById("processingMessage").style.display = "block";
+
+            fetch('/submit', {
+                method: 'POST',
+                body: new FormData(event.target)
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Hide processing message
+                document.getElementById("processingMessage").style.display = "none";
+                
+                if (data.errors) {
+                    // Display error message in alert dialog box
+                    alert(data.errors.join('\n'));
+                } else if (data.result) {
+                    // Display success message if form submission is successful
+                    alert(data.result);
+                    // Redirect to home page or any other page after successful submission
+                    window.location.href = "/";
+                }
+            })
+            .catch(error => {
+                // Hide processing message in case of error
+                document.getElementById("processingMessage").style.display = "none";
+                console.error('Error:', error);
+            });
+        });
+    </script>
+</body>
+</html>
