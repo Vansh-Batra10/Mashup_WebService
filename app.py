@@ -1,4 +1,4 @@
-import os
+import io
 import json
 from flask import Flask, render_template, request, jsonify
 from pytube import YouTube
@@ -39,30 +39,34 @@ def search_videos(singer_name, num_videos):
 
 def download_video(url):
     try:
-        YouTube(url).streams.filter(progressive=True, file_extension='mp4').first().download()
+        video = YouTube(url)
+        stream = video.streams.filter(progressive=True, file_extension='mp4').first()
+        return stream
     except Exception as e:
         print(f"An error occurred while downloading {url}: {str(e)}")
+        return None
 
-def convert_to_audio(video_file):
-    print("Converting video to audio...")
+def convert_to_audio(video_stream):
     try:
-        video = VideoFileClip(video_file)
-        audio = video.audio
-        return audio
+        in_memory_file = io.BytesIO()
+        video_stream.download(in_memory=True, outtmpl=in_memory_file)
+        in_memory_file.seek(0)
+        video_clip = VideoFileClip(in_memory_file)
+        audio_clip = video_clip.audio
+        return audio_clip
     except Exception as e:
-        print(f"An error occurred while processing {video_file}: {str(e)}")
+        print(f"An error occurred while converting to audio: {str(e)}")
+        return None
 
-def merge_audios(output_file, audio_files):
-    print("Merging audio files...")
+def merge_audios(audio_clips):
     try:
-        final_clip = concatenate_audioclips(audio_files)
-        final_clip.write_audiofile(output_file)
-        final_clip.close()
-        print("Merging completed.")
+        final_clip = concatenate_audioclips(audio_clips)
+        return final_clip
     except Exception as e:
-        print(f"An error occurred while merging audio files: {str(e)}")
+        print(f"An error occurred while merging audio clips: {str(e)}")
+        return None
 
-def send_email(email, audio_data):
+def send_email(email, output_file):
     sender_email = "vbmashup072@gmail.com"  # Update with your email address
     password = "pxjubdrwqtmpefka"
     port = 465  # For SSL
@@ -75,13 +79,16 @@ def send_email(email, audio_data):
     body = "Please find the result file attached."
     message.attach(MIMEText(body, "plain"))
 
-    part = MIMEBase("audio", "mp3")
-    part.set_payload(audio_data)
+    with output_file as attachment:
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(attachment.read())
+
     encoders.encode_base64(part)
     part.add_header(
         "Content-Disposition",
-        f"attachment; filename= {os.path.basename('mashup.mp3')}",
+        f"attachment; filename= {os.path.basename(output_file.name)}",
     )
+
     message.attach(part)
 
     context = ssl.create_default_context()
@@ -129,22 +136,20 @@ def submit():
     if errors:
         return jsonify({'errors': errors})
 
-    output_file = "mashup.mp3"  # Hardcoded output file name
-    audio_files = []
-
     try:
         urls = search_videos(singer_name, num_videos)
-        for url in urls:
-            download_video(url)
-            video_file = f"{YouTube(url).title}.mp4"
-            audio = convert_to_audio(video_file)
-            audio_files.append(audio)
-        merge_audios(output_file, audio_files)
-        with open(output_file, "rb") as audio_data:
-            audio_binary = audio_data.read()
-        send_email(email, audio_binary)
-        result = f"Mashup file for {singer_name} has been created successfully and sent to {email}"
-        return jsonify({'result': result})
+        video_streams = [download_video(url) for url in urls]
+        audio_clips = [convert_to_audio(stream) for stream in video_streams if stream]
+        final_clip = merge_audios(audio_clips)
+        if final_clip:
+            with io.BytesIO() as output_buffer:
+                final_clip.write_audiofile(output_buffer, format="mp3")
+                output_buffer.seek(0)
+                send_email(email, output_buffer)
+            result = f"Mashup file for {singer_name} has been created successfully and sent to {email}"
+            return jsonify({'result': result})
+        else:
+            return jsonify({'errors': ["Failed to create mashup file."]})
     except Exception as e:
         return jsonify({'errors': [f"An error occurred: {str(e)}"]})
 
