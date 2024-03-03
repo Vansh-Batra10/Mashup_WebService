@@ -9,7 +9,7 @@ from email import encoders
 import re
 import ssl
 from youtube_search import YoutubeSearch
-
+os.environ["PAFY_BACKEND"] = "internal"
 app = Flask(__name__)
 
 def is_valid_email(email):
