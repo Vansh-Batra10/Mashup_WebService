@@ -7,6 +7,7 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 import re
+import json
 import ssl
 from youtube_search import YoutubeSearch
 os.environ["PAFY_BACKEND"] = "internal"
