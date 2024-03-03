@@ -11,6 +11,7 @@ from email.mime.base import MIMEBase
 from email import encoders
 import re
 import ssl
+
 app = Flask(__name__)
 
 def is_valid_email(email):
@@ -36,58 +37,32 @@ def search_videos(singer_name, num_videos):
 
     return urls
 
-def download_videos(urls):
-    print("Downloading videos...")
-    for url in urls:
-        try:
-            YouTube(url).streams.filter(progressive=True, file_extension='mp4').first().download()
-        except Exception as e:
-            print(f"An error occurred while downloading {url}: {str(e)}")
+def download_video(url):
+    try:
+        YouTube(url).streams.filter(progressive=True, file_extension='mp4').first().download()
+    except Exception as e:
+        print(f"An error occurred while downloading {url}: {str(e)}")
 
-def convert_to_audio():
-    print("Converting videos to audio...")
-    for file in os.listdir():
-        if file.endswith(".mp4"):
-            print(f"Processing video file: {file}")
-            try:
-                video = VideoFileClip(file)
-                audio_file = os.path.splitext(file)[0] + ".mp3"
-                video.audio.write_audiofile(audio_file)
-                video.close()
-                os.remove(file)
-            except Exception as e:
-                print(f"An error occurred while processing {file}: {str(e)}")
+def convert_to_audio(video_file):
+    print("Converting video to audio...")
+    try:
+        video = VideoFileClip(video_file)
+        audio = video.audio
+        return audio
+    except Exception as e:
+        print(f"An error occurred while processing {video_file}: {str(e)}")
 
-def cut_audio(duration):
-    print(f"Cutting first {duration} seconds from audio files...")
-    for file in os.listdir():
-        if file.endswith(".mp3"):
-            audio = AudioFileClip(file)
-            new_audio = audio.subclip(0, duration)
-            new_audio.write_audiofile(f"cut_{file}")
-            audio.close()
-            new_audio.close()
-            os.remove(file)
-
-def merge_audios(output_file):
+def merge_audios(output_file, audio_files):
     print("Merging audio files...")
-    audio_files = [file for file in os.listdir() if file.startswith("cut_")]
-    if len(audio_files) == 0:
-        print("No audio files to merge.")
-        return
+    try:
+        final_clip = concatenate_audioclips(audio_files)
+        final_clip.write_audiofile(output_file)
+        final_clip.close()
+        print("Merging completed.")
+    except Exception as e:
+        print(f"An error occurred while merging audio files: {str(e)}")
 
-    audio_clips = [AudioFileClip(file) for file in audio_files]
-    final_clip = concatenate_audioclips(audio_clips)
-
-    final_clip.write_audiofile(output_file)
-    final_clip.close()
-
-    for file in audio_files:
-        os.remove(file)
-
-    print("Merging completed.")
-
-def send_email(email, file_path):
+def send_email(email, audio_data):
     sender_email = "vbmashup072@gmail.com"  # Update with your email address
     password = "pxjubdrwqtmpefka"
     port = 465  # For SSL
@@ -100,16 +75,13 @@ def send_email(email, file_path):
     body = "Please find the result file attached."
     message.attach(MIMEText(body, "plain"))
 
-    with open(file_path, "rb") as attachment:
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(attachment.read())
-
+    part = MIMEBase("audio", "mp3")
+    part.set_payload(audio_data)
     encoders.encode_base64(part)
     part.add_header(
         "Content-Disposition",
-        f"attachment; filename= {os.path.basename(file_path)}",
+        f"attachment; filename= {os.path.basename('mashup.mp3')}",
     )
-
     message.attach(part)
 
     context = ssl.create_default_context()
@@ -120,8 +92,6 @@ def send_email(email, file_path):
 @app.route('/', methods=['GET'])
 def index():
     return render_template('form.html')
-
-from flask import jsonify
 
 @app.route('/submit', methods=['POST'])
 def submit():
@@ -159,15 +129,20 @@ def submit():
     if errors:
         return jsonify({'errors': errors})
 
-    output_file = f"{singer_name}_mashup.mp3"  # Update with your output file name
+    output_file = "mashup.mp3"  # Hardcoded output file name
+    audio_files = []
 
     try:
         urls = search_videos(singer_name, num_videos)
-        download_videos(urls)
-        convert_to_audio()
-        cut_audio(duration)
-        merge_audios(output_file)
-        send_email(email, output_file)
+        for url in urls:
+            download_video(url)
+            video_file = f"{YouTube(url).title}.mp4"
+            audio = convert_to_audio(video_file)
+            audio_files.append(audio)
+        merge_audios(output_file, audio_files)
+        with open(output_file, "rb") as audio_data:
+            audio_binary = audio_data.read()
+        send_email(email, audio_binary)
         result = f"Mashup file for {singer_name} has been created successfully and sent to {email}"
         return jsonify({'result': result})
     except Exception as e:
