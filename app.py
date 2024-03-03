@@ -39,8 +39,9 @@ def download_audio(url):
         yt = YouTube(url)
         audio_stream = yt.streams.filter(only_audio=True, file_extension='mp4').first()
         if audio_stream:
-            audio_data = audio_stream.stream_to_buffer()
-            return audio_data
+            filename = f"{yt.title}.mp3"  # Use title as filename
+            audio_stream.download(filename)
+            return filename
         else:
             print(f"No audio stream found for {url}")
             return None
@@ -49,7 +50,7 @@ def download_audio(url):
         return None
 
 
-def send_email(email, audio_data):
+def send_email(email, audio_file):
     sender_email = "vbmashup072@gmail.com"  # Update with your email address
     password = "pxjubdrwqtmpefka"
     port = 465  # For SSL
@@ -63,7 +64,8 @@ def send_email(email, audio_data):
     message.attach(MIMEText(body, "plain"))
 
     part = MIMEBase("application", "octet-stream")
-    part.set_payload(audio_data)
+    with open(audio_file, "rb") as attachment:
+        part.set_payload(attachment.read())
     encoders.encode_base64(part)
     part.add_header(
         "Content-Disposition",
@@ -112,13 +114,13 @@ def submit():
 
     try:
         urls = search_videos(singer_name, num_videos)
-        audio_data = b''
+        audio_files = []
         for url in urls:
-            audio_chunk = download_audio(url)
-            if audio_chunk:
-                audio_data += audio_chunk
-        if audio_data:
-            send_email(email, audio_data)
+            audio_file = download_audio(url)
+            if audio_file:
+                audio_files.append(audio_file)
+        if audio_files:
+            send_email(email, audio_files[0])  # Sending only the first audio file for now
             result = f"Mashup audio for {singer_name} has been created successfully and sent to {email}"
             return jsonify({'result': result})
         else:
