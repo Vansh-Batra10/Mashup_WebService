@@ -36,15 +36,18 @@ def search_videos(singer_name, num_videos):
 
 def download_audio(url):
     try:
-        response = requests.get(url)
-        # Extract audio stream URL from YouTube video page
-        audio_stream_url = re.search(r'"audioUrl":"([^"]+)"', response.text).group(1)
-        # Download audio stream
-        audio_data = requests.get(audio_stream_url).content
-        return audio_data
+        yt = YouTube(url)
+        audio_stream = yt.streams.filter(only_audio=True, file_extension='mp4').first()
+        if audio_stream:
+            audio_data = audio_stream.stream_to_buffer()
+            return audio_data
+        else:
+            print(f"No audio stream found for {url}")
+            return None
     except Exception as e:
         print(f"An error occurred while downloading audio from {url}: {str(e)}")
         return None
+
 
 def send_email(email, audio_data):
     sender_email = "vbmashup072@gmail.com"  # Update with your email address
