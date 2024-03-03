@@ -1,8 +1,7 @@
-import io
+import os
 import json
 from flask import Flask, render_template, request, jsonify
 from pytube import YouTube
-from moviepy.editor import *
 from youtube_search import YoutubeSearch
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -11,6 +10,7 @@ from email.mime.base import MIMEBase
 from email import encoders
 import re
 import ssl
+import requests
 
 app = Flask(__name__)
 
@@ -18,9 +18,6 @@ def is_valid_email(email):
     # Regular expression pattern for email validation
     pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
     return re.match(pattern, email) is not None
-
-def create_youtube_url(url_suffix):
-    return f"https://www.youtube.com{url_suffix}"
 
 def search_videos(singer_name, num_videos):
     print("Searching for videos...")
@@ -31,42 +28,25 @@ def search_videos(singer_name, num_videos):
     for video in results["videos"]:
         video_id = video["id"]
         url_suffix = video["url_suffix"]
-        youtube_url = create_youtube_url(url_suffix)
+        youtube_url = f"https://www.youtube.com{url_suffix}"
         print("YouTube Video URL:", youtube_url)
         urls.append(youtube_url)
 
     return urls
 
-def download_video(url):
+def download_audio(url):
     try:
-        video = YouTube(url)
-        stream = video.streams.filter(progressive=True, file_extension='mp4').first()
-        return stream
+        response = requests.get(url)
+        # Extract audio stream URL from YouTube video page
+        audio_stream_url = re.search(r'"audioUrl":"([^"]+)"', response.text).group(1)
+        # Download audio stream
+        audio_data = requests.get(audio_stream_url).content
+        return audio_data
     except Exception as e:
-        print(f"An error occurred while downloading {url}: {str(e)}")
+        print(f"An error occurred while downloading audio from {url}: {str(e)}")
         return None
 
-def convert_to_audio(video_stream):
-    try:
-        in_memory_file = io.BytesIO()
-        video_stream.download(in_memory=True, outtmpl=in_memory_file)
-        in_memory_file.seek(0)
-        video_clip = VideoFileClip(in_memory_file)
-        audio_clip = video_clip.audio
-        return audio_clip
-    except Exception as e:
-        print(f"An error occurred while converting to audio: {str(e)}")
-        return None
-
-def merge_audios(audio_clips):
-    try:
-        final_clip = concatenate_audioclips(audio_clips)
-        return final_clip
-    except Exception as e:
-        print(f"An error occurred while merging audio clips: {str(e)}")
-        return None
-
-def send_email(email, output_file):
+def send_email(email, audio_data):
     sender_email = "vbmashup072@gmail.com"  # Update with your email address
     password = "pxjubdrwqtmpefka"
     port = 465  # For SSL
@@ -76,19 +56,16 @@ def send_email(email, output_file):
     message["To"] = email
     message["Subject"] = "Mashup Result"
 
-    body = "Please find the result file attached."
+    body = "Please find the result audio attached."
     message.attach(MIMEText(body, "plain"))
 
-    with output_file as attachment:
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(attachment.read())
-
+    part = MIMEBase("application", "octet-stream")
+    part.set_payload(audio_data)
     encoders.encode_base64(part)
     part.add_header(
         "Content-Disposition",
-        f"attachment; filename= {os.path.basename(output_file.name)}",
+        "attachment; filename= mashup.mp3",
     )
-
     message.attach(part)
 
     context = ssl.create_default_context()
@@ -104,29 +81,23 @@ def index():
 def submit():
     singer_name = request.form.get('singer')
     num_videos = request.form.get('num_videos')
-    duration = request.form.get('duration')
     email = request.form.get('email')
 
     errors = []
 
     # Check if all fields are provided
-    if not (singer_name and num_videos and duration and email):
+    if not (singer_name and num_videos and email):
         errors.append("All fields are required.")
 
-    # Check if num_videos and duration are integers
+    # Check if num_videos is an integer
     try:
         num_videos = int(num_videos)
-        duration = int(duration)
     except ValueError:
-        errors.append("Number of videos and duration must be integers.")
+        errors.append("Number of videos must be an integer.")
 
     # Check if num_videos is greater than 0
     if num_videos < 20:
         errors.append("Number of videos must be greater than or equal to 20.")
-
-    # Check if duration is greater than 0
-    if duration < 20:
-        errors.append("Duration must be greater than or equal to 20.")
 
     # Check if email is valid
     if not email or not is_valid_email(email):
@@ -138,18 +109,17 @@ def submit():
 
     try:
         urls = search_videos(singer_name, num_videos)
-        video_streams = [download_video(url) for url in urls]
-        audio_clips = [convert_to_audio(stream) for stream in video_streams if stream]
-        final_clip = merge_audios(audio_clips)
-        if final_clip:
-            with io.BytesIO() as output_buffer:
-                final_clip.write_audiofile(output_buffer, format="mp3")
-                output_buffer.seek(0)
-                send_email(email, output_buffer)
-            result = f"Mashup file for {singer_name} has been created successfully and sent to {email}"
+        audio_data = b''
+        for url in urls:
+            audio_chunk = download_audio(url)
+            if audio_chunk:
+                audio_data += audio_chunk
+        if audio_data:
+            send_email(email, audio_data)
+            result = f"Mashup audio for {singer_name} has been created successfully and sent to {email}"
             return jsonify({'result': result})
         else:
-            return jsonify({'errors': ["Failed to create mashup file."]})
+            return jsonify({'errors': ["Failed to download audio from all videos."]})
     except Exception as e:
         return jsonify({'errors': [f"An error occurred: {str(e)}"]})
 
