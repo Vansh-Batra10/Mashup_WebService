@@ -1,6 +1,6 @@
 import os
-import json
 from flask import Flask, render_template, request, jsonify
+import pafy
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -8,7 +8,7 @@ from email.mime.base import MIMEBase
 from email import encoders
 import re
 import ssl
-import youtube_dl
+from youtube_search import YoutubeSearch
 
 app = Flask(__name__)
 
@@ -16,37 +16,37 @@ def is_valid_email(email):
     # Regular expression pattern for email validation
     pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
     return re.match(pattern, email) is not None
-
 def search_videos(singer_name, num_videos):
     print("Searching for videos...")
-    # You can add your own logic here to search for videos using the method you prefer
-    # This example doesn't include video search functionality
-    urls = []  # Placeholder for video URLs
+    videosSearch = YoutubeSearch(singer_name + ' songs', max_results=num_videos).to_json()
+    results = json.loads(videosSearch)
+
+    urls = []
+    for video in results["videos"]:
+        video_id = video["id"]
+        url_suffix = video["url_suffix"]
+        youtube_url = f"https://www.youtube.com{url_suffix}"
+        print("YouTube Video URL:", youtube_url)
+        urls.append(youtube_url)
+
     return urls
+
 
 def download_audio(url):
     try:
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': '%(title)s.%(ext)s',  # Use title as filename
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-        }
-
-        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info_dict)
+        video = pafy.new(url)
+        audiostreams = video.audiostreams
+        audio_stream = audiostreams[-1]  # Selecting the last available audio stream
+        filename = f"{video.title}.{audio_stream.extension}"  # Use video title as filename
+        audio_stream.download(filepath=filename)
         return filename
     except Exception as e:
         print(f"An error occurred while downloading audio from {url}: {str(e)}")
         return None
 
 def send_email(email, audio_file):
-    sender_email = "vbmashup072@gmail.com"  # Update with your email address
-    password = "pxjubdrwqtmpefka"
+    sender_email = "your_email@gmail.com"  # Update with your email address
+    password = "your_password"
     port = 465  # For SSL
 
     message = MIMEMultipart()
