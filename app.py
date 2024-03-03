@@ -1,8 +1,6 @@
 import os
 import json
 from flask import Flask, render_template, request, jsonify
-from pytube import YouTube
-from youtube_search import YoutubeSearch
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -10,7 +8,7 @@ from email.mime.base import MIMEBase
 from email import encoders
 import re
 import ssl
-import requests
+import youtube_dl
 
 app = Flask(__name__)
 
@@ -21,34 +19,30 @@ def is_valid_email(email):
 
 def search_videos(singer_name, num_videos):
     print("Searching for videos...")
-    videosSearch = YoutubeSearch(singer_name + ' songs', max_results=num_videos).to_json()
-    results = json.loads(videosSearch)
-
-    urls = []
-    for video in results["videos"]:
-        video_id = video["id"]
-        url_suffix = video["url_suffix"]
-        youtube_url = f"https://www.youtube.com{url_suffix}"
-        print("YouTube Video URL:", youtube_url)
-        urls.append(youtube_url)
-
+    # You can add your own logic here to search for videos using the method you prefer
+    # This example doesn't include video search functionality
+    urls = []  # Placeholder for video URLs
     return urls
 
 def download_audio(url):
     try:
-        yt = YouTube(url)
-        audio_stream = yt.streams.filter(only_audio=True, file_extension='mp4').first()
-        if audio_stream:
-            filename = f"{yt.title}.mp3"  # Use title as filename
-            audio_stream.download(filename)
-            return filename
-        else:
-            print(f"No audio stream found for {url}")
-            return None
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': '%(title)s.%(ext)s',  # Use title as filename
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+        }
+
+        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info_dict)
+        return filename
     except Exception as e:
         print(f"An error occurred while downloading audio from {url}: {str(e)}")
         return None
-
 
 def send_email(email, audio_file):
     sender_email = "vbmashup072@gmail.com"  # Update with your email address
